@@ -22,7 +22,7 @@ Here is the commit activity:
 
 {chunk}
 
- Summarizie the work.Mention file paths and commit hashes.
+ Summarizie the work. Mention file paths and commit hashes.
 
 
 
