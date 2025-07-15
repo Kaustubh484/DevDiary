@@ -14,19 +14,31 @@ def chunk_text_by_commit(git_log: str) -> list[str]:
     return [block.strip() for block in blocks if block.strip()]
 
 def summarize_chunk(chunk: str) -> str:
-    prompt = f"""You are a developer journal assistant.
+    prompt = f"""
+        You are a developer journal assistant.
 
-Your job is to summarize Git commit activity into clear, human-readable journal bullet points.
+        Your job is to convert raw Git commit activity into clean, professional journal entries.
 
-Here is the commit activity:
+        Each bullet point should contain:
+        - The commit hash (e.g., `abc123`)
+        - A clear one-sentence summary of the commit
+        - Key file names in parentheses if possible
 
-{chunk}
+        Format strictly like this:
+        - `abc123`: Implemented JWT authentication and refactored session management (`auth.py`, `session.py`)
+        - `def456`: Fixed crash in dashboard rendering logic (`dashboard/views.py`)
 
- Summarizie the work. Mention file paths and commit hashes.
+        Here is the raw commit activity:
+
+        {chunk}
+
+        Now write your summary:
+        """
 
 
 
-Summary:"""
+
+
     try:
         result = llm(prompt, stop=["</s>"])
         return result["choices"][0]["text"].strip()
