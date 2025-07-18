@@ -2,32 +2,42 @@ import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from journal.summarize import summarize_chunk , summarize_git_log # Ollama-based
+from datetime import datetime, timedelta
+
+def get_today_date() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+def get_past_days_date(days: int) -> str:
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+def get_first_day_of_month() -> str:
+    today = datetime.now()
+    return today.replace(day=1).strftime("%Y-%m-%d")
 
 
-def find_git_repos(root_path):
-    git_repos = []
-    for dirpath, dirnames, filenames in os.walk(root_path):
-        if '.git' in dirnames:
-            git_repos.append(Path(dirpath))
-            dirnames[:] = []  # stop recursing into that repo
-    return git_repos
-
-
+# Patterns to exclude from file logs
 EXCLUDED_PATTERNS = [
     "venv/", ".venv/", "__pycache__",
     ".git/", "env/", "site-packages", "/bin/", "/lib/", "dist-info"
 ]
 
-
-def should_exclude(line):
-    normalized = Path(line.strip()).as_posix().lower()  # normalize and lowercase
+def should_exclude(line: str) -> bool:
+    normalized = Path(line.strip()).as_posix().lower()
     return any(pattern in normalized for pattern in EXCLUDED_PATTERNS)
 
 
-def get_commits_from_repo(repo_path, since_date):
-    since_date = datetime.now().strftime("%Y-%m-%d")
+def find_git_repos(root_path: Path) -> list[Path]:
+    git_repos = []
+    for dirpath, dirnames, _ in os.walk(root_path):
+        if ".git" in dirnames:
+            git_repos.append(Path(dirpath))
+            dirnames[:] = []  # Don't recurse into subfolders
+    return git_repos
+
+
+def get_commits_from_repo(repo_path: Path, since_date: str) -> str | None:
     try:
-        # Add delimiters between commits
         result = subprocess.run(
             ["git", "log", f"--since={since_date} 00:00", "--pretty=format:===COMMIT===%n%h %s", "--name-only"],
             cwd=repo_path,
@@ -50,36 +60,37 @@ def get_commits_from_repo(repo_path, since_date):
             commit_header = lines[0]
             file_lines = lines[1:]
 
-            # Only keep files not matching the exclude list
-            filtered_files = [
-                f for f in file_lines
-                if not should_exclude(f)
-            ]
+            filtered_files = [f for f in file_lines if not should_exclude(f)]
 
             if filtered_files:
                 included_blocks.append(commit_header + "\n" + "\n".join(filtered_files))
 
         if included_blocks:
-            return f"# 📁 {repo_path}:\n" + "\n\n".join(included_blocks)
+            return "\n\n".join(included_blocks)
 
     except Exception as e:
-        return f"# 📁 {repo_path}:\nError: {e}"
+        return f"[Error reading repo {repo_path}]: {e}"
 
     return None
 
 
+def get_all_commits_across_repos(since_date: str, root="~/dev", summarize_with_llm=True,mode:str="today") -> str:
 
-
-def get_all_today_commits_across_repos(root="~/dev"):
-    since = datetime.now().strftime("%Y-%m-%d")
     root_path = Path(os.path.expanduser(root))
     repos = find_git_repos(root_path)
 
-    all_logs = []
+    all_summaries = []
+
     for repo in repos:
-        log = get_commits_from_repo(repo, since)
-        if log:
-            all_logs.append(log)
+        raw_log = get_commits_from_repo(repo, since_date)
+        if not raw_log:
+            continue
 
-    return "\n\n".join(all_logs) if all_logs else "No commits found today."
+        if summarize_with_llm:
+            repo_name = repo.name
+            summary = summarize_git_log(raw_log, repo_name=repo_name, date=since_date, mode=mode)
+            all_summaries.append(f"### 📁 {repo_name}\n{summary}")
+        else:
+            all_summaries.append(f"# 📁 {repo}\n{raw_log}")
 
+    return "\n\n".join(all_summaries) if all_summaries else "No commits found today."
