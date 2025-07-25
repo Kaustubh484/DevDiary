@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from journal.summarize import summarize_chunk , summarize_git_log # Ollama-based
 from datetime import datetime, timedelta
-
+from typing import Optional
 def get_today_date() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
@@ -36,7 +36,7 @@ def find_git_repos(root_path: Path) -> list[Path]:
     return git_repos
 
 
-def get_commits_from_repo(repo_path: Path, since_date: str) -> str | None:
+def get_commits_from_repo(repo_path: Path, since_date: str) -> str:
     try:
         result = subprocess.run(
             ["git", "log", f"--since={since_date} 00:00", "--pretty=format:===COMMIT===%n%h %s", "--name-only"],
@@ -47,7 +47,7 @@ def get_commits_from_repo(repo_path: Path, since_date: str) -> str | None:
         )
 
         if result.returncode != 0 or not result.stdout.strip():
-            return None
+            return ""
 
         blocks = result.stdout.strip().split("===COMMIT===")
         included_blocks = []
@@ -74,8 +74,8 @@ def get_commits_from_repo(repo_path: Path, since_date: str) -> str | None:
     return None
 
 
-def get_all_commits_across_repos(since_date: str, root="~/dev", summarize_with_llm=True,mode:str="today") -> str:
-
+def get_all_commits_across_repos(since_date: str, root="~/dev", summarize_with_llm=True, mode: str = "today") -> str:
+    # Expand ~ and convert to Path
     root_path = Path(os.path.expanduser(root))
     repos = find_git_repos(root_path)
 

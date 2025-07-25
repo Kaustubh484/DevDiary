@@ -2,6 +2,7 @@ import click
 from journal.git_utils import get_today_git_summary
 from journal.multi_repo_git_utils import get_all_commits_across_repos,get_today_date, get_past_days_date, get_first_day_of_month
 from journal.summarize import summarize_git_log
+from pathlib import Path
   # You should implement these in utils
 
 @click.group()
@@ -27,7 +28,9 @@ def resolve_since_date(mode: str) -> str:
 @click.option('--root', default="~/dev", help="Root folder to scan for Git repos")
 @click.option('--mode', default="today", help="Mode of operation: today, weekly, monthly, or custom:YYYY-MM-DD")
 @click.option('--summarize', is_flag=True, help="Use LLM to summarize activity")
-def summarize(all_projects, root, mode, summarize):
+@click.option('--output', type=click.Path(), help="Optional: Path to save summary output")
+
+def summarize(all_projects, root, mode, summarize,output):
     """Summarize Git activity with optional LLM summarization."""
     since_date = resolve_since_date(mode)
 
@@ -35,6 +38,10 @@ def summarize(all_projects, root, mode, summarize):
         summary = get_all_commits_across_repos(since_date=since_date, root=root, summarize_with_llm=summarize,mode=mode)
         click.echo("=== Git Activity Across Projects ===\n")
         click.echo(summary)
+         
+    if output:
+        Path(output).write_text(summary)
+        click.echo(f"\n✅ Summary saved to {output}")
     else:
         raw_log = get_today_git_summary()  # You can change this to support since_date if needed
         click.echo("=== Git Activity (Current Repo) ===\n")
