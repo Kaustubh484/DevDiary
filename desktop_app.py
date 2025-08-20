@@ -1,26 +1,24 @@
 import sys
 import os
+import re
 from pathlib import Path
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton,
-    QLabel, QCheckBox, QComboBox, QFileDialog, QLineEdit
+    QLabel, QCheckBox, QComboBox, QFileDialog, QLineEdit, QDateEdit,
+    QListWidget, QListWidgetItem
 )
-import re
+from PyQt5.QtCore import QDate
 
 from journal.date_utils import resolve_since_date
 
-from journal.git_utils import get_today_git_summary
-from journal.multi_repo_git_utils import get_all_commits_across_repos,get_today_date, get_past_days_date, get_first_day_of_month
-from journal.summarize import summarize_git_log
+from journal.multi_repo_git_utils import get_all_commits_across_repos, find_git_repos
+
+
 
 def markdown_to_html(text: str) -> str:
-    # Convert **bold** to <b>bold</b>
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    # Convert `code` to <code>code</code>
     text = re.sub(r'`([^`]*)`', r'<code>\1</code>', text)
-    # Convert ### Header to <h3>Header</h3>
     text = re.sub(r'### (.*?)\n', r'<h3>\1</h3>', text)
-    # Add line breaks
     text = text.replace('\n', '<br>')
     return text
 
@@ -32,17 +30,39 @@ class JournalApp(QWidget):
 
         layout = QVBoxLayout()
 
-        # Options
         self.all_projects_checkbox = QCheckBox("Scan all projects (default: ~/dev)")
         layout.addWidget(self.all_projects_checkbox)
 
+        layout.addWidget(QLabel("Select repositories to include:"))
+        self.repo_list = QListWidget()
+        self.repo_list.setSelectionMode(QListWidget.MultiSelection)
+        layout.addWidget(self.repo_list)
+
         self.mode_dropdown = QComboBox()
-        self.mode_dropdown.addItems(["today", "weekly", "monthly"])
+        self.mode_dropdown.addItems(["today", "weekly", "monthly", "custom"])
         layout.addWidget(QLabel("Select Mode:"))
         layout.addWidget(self.mode_dropdown)
+        self.mode_dropdown.currentTextChanged.connect(self.toggle_date_range_visibility)
 
-        self.llm_checkbox = QCheckBox("Summarize with LLM")
-        layout.addWidget(self.llm_checkbox)
+        self.date_range_container = QWidget()
+        date_layout = QVBoxLayout()
+        date_layout.addWidget(QLabel("From Date:"))
+        self.date_from_edit = QDateEdit()
+        self.date_from_edit.setCalendarPopup(True)
+        self.date_from_edit.setDate(QDate.currentDate().addDays(-7))
+        date_layout.addWidget(self.date_from_edit)
+
+        date_layout.addWidget(QLabel("To Date:"))
+        self.date_to_edit = QDateEdit()
+        self.date_to_edit.setCalendarPopup(True)
+        self.date_to_edit.setDate(QDate.currentDate())
+        date_layout.addWidget(self.date_to_edit)
+
+        self.date_range_container.setLayout(date_layout)
+        layout.addWidget(self.date_range_container)
+        self.date_range_container.hide()
+
+        
 
         self.save_checkbox = QCheckBox("Save output to file")
         layout.addWidget(self.save_checkbox)
@@ -58,6 +78,11 @@ class JournalApp(QWidget):
         self.root_input = QLineEdit(os.path.expanduser("~/dev"))
         layout.addWidget(QLabel("Root folder to scan:"))
         layout.addWidget(self.root_input)
+        self.root_input.editingFinished.connect(self.populate_repo_list)
+
+        self.refresh_button = QPushButton("Refresh Repo List")
+        self.refresh_button.clicked.connect(self.populate_repo_list)
+        layout.addWidget(self.refresh_button)
 
         self.run_button = QPushButton("Run Summary")
         self.run_button.clicked.connect(self.run_summary)
@@ -65,46 +90,75 @@ class JournalApp(QWidget):
 
         self.result_text = QTextEdit()
         self.result_text.setReadOnly(True)
+        self.result_text.setPlaceholderText("Summary will appear here...")
         layout.addWidget(self.result_text)
 
         self.setLayout(layout)
+        self.populate_repo_list()
 
     def browse_output_file(self):
         path, _ = QFileDialog.getSaveFileName(self, "Select Output File")
         if path:
             self.output_path.setText(path)
 
+    def toggle_date_range_visibility(self, text):
+        self.date_range_container.setVisible(text.lower() == "custom")
+
+    def populate_repo_list(self):
+        root = self.root_input.text().strip() or "~/dev"
+        repos = find_git_repos(Path(os.path.expanduser(root)))
+
+        self.repo_list.clear()
+        for repo_path in repos:
+            item = QListWidgetItem(str(repo_path))
+            item.setCheckState(2)
+            self.repo_list.addItem(item)
+
     def run_summary(self):
         all_projects = self.all_projects_checkbox.isChecked()
         mode = self.mode_dropdown.currentText()
-        summarize = self.llm_checkbox.isChecked()
+        
         save_output = self.save_checkbox.isChecked()
         output_path = self.output_path.text().strip()
         root = self.root_input.text().strip() or "~/dev"
 
-        since_date = resolve_since_date(mode)
-
+        if mode.lower().startswith("custom"):
+            since_date = self.date_from_edit.date().toPyDate().isoformat()
+            to_date = self.date_to_edit.date().toPyDate().isoformat()
+        else:
+            since_date = resolve_since_date(mode)
+            to_date = None
+            
+        selected_repos = [
+                Path(self.repo_list.item(i).text())
+                for i in range(self.repo_list.count())
+                if self.repo_list.item(i).checkState() == 2
+            ]
         if all_projects:
+           summary = get_all_commits_across_repos(
+                since_date=since_date,
+                to_date=to_date,
+                root=root,
+                summarize_with_llm=True,
+                mode=mode,
+                selected_repos=None
+            )
+        else:
             summary = get_all_commits_across_repos(
                 since_date=since_date,
+                to_date=to_date,
                 root=root,
-                summarize_with_llm=summarize,
-                mode=mode
+                summarize_with_llm=True,
+                mode=mode,
+                selected_repos=selected_repos
             )
-            display_text =  summary
-        else:
-            raw_log = get_today_git_summary()  # You can enhance to support date range
-            if summarize:
-                display_text = summarize_git_log(raw_log)
-            else:
-                display_text = raw_log
+            
 
-        html_output = markdown_to_html(display_text)
+        html_output = markdown_to_html(summary)
         self.result_text.setHtml(html_output)
 
-
         if save_output and output_path:
-            Path(output_path).write_text(display_text)
+            Path(output_path).write_text(summary, encoding='utf-8')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
