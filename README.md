@@ -71,11 +71,11 @@ python main.py summarize --all-projects --mode weekly --summarize --output summa
 ## 📂 Example Output
 
 ```markdown
-### 📁 dev-journal-assistant
+ 📁 dev-journal-assistant
 - `ad9d16a`: Set up the project structure (`main.py`, `summarize.py`)
 - `0bb322a`: Integrated Ollama for local LLM summaries
 
-**Standup Summary**: In the last 7 days, I bootstrapped a local LLM-powered journaling system and integrated commit summarization with GUI support.
+Standup Summary: In the last 7 days, I bootstrapped a local LLM-powered journaling system and integrated commit summarization with GUI support.
 ```
 
 ## 📌 Future Work
