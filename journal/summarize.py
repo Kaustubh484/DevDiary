@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Dict, Any, Optional, List
 
@@ -14,8 +15,109 @@ from .cache import (
     put_cached,
 )
 
-client = Client()
+logger = logging.getLogger(__name__)
+
+# Global client instance
+_client: Optional[Client] = None
+
+
+def get_ollama_client() -> Client:
+    """
+    Get or create a validated Ollama client instance.
+
+    Validates that:
+    1. Ollama server is running and accessible
+    2. The 'llama3' model is available
+
+    Returns:
+        Client: Validated Ollama client instance
+
+    Raises:
+        RuntimeError: If Ollama is not accessible or llama3 model is not available,
+                     with detailed setup instructions
+    """
+    global _client
+
+    if _client is not None:
+        logger.debug("Reusing existing Ollama client instance")
+        return _client
+
+    logger.info("Initializing Ollama client")
+
+    try:
+        client = Client()
+        logger.debug("Ollama client created, testing connection...")
+
+        # Test connection by listing models
+        models_response = client.list()
+        logger.debug(f"Successfully connected to Ollama server")
+
+        # Extract model names from response
+        available_models = []
+        if hasattr(models_response, 'models'):
+            available_models = [model.model for model in models_response.models]
+        elif isinstance(models_response, dict) and 'models' in models_response:
+            available_models = [m.get('name', m.get('model', '')) for m in models_response['models']]
+
+        logger.debug(f"Available models: {available_models}")
+
+        # Check if llama3 is available (case-insensitive partial match)
+        llama3_available = any('llama3' in model.lower() for model in available_models)
+
+        if not llama3_available:
+            error_msg = (
+                "Ollama is running, but the 'llama3' model is not available.\n\n"
+                "To fix this, run:\n"
+                "  ollama pull llama3\n\n"
+                f"Available models: {', '.join(available_models) if available_models else 'none'}\n\n"
+                "For more information, visit: https://ollama.com/"
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        logger.info("Ollama client validated successfully with llama3 model")
+        _client = client
+        return _client
+
+    except ConnectionError as e:
+        error_msg = (
+            "Failed to connect to Ollama server.\n\n"
+            "Please ensure Ollama is installed and running:\n"
+            "  1. Install Ollama from https://ollama.com/\n"
+            "  2. Start the Ollama service (it usually runs automatically)\n"
+            "  3. Pull the llama3 model: ollama pull llama3\n\n"
+            f"Error details: {str(e)}"
+        )
+        logger.error(f"Ollama connection failed: {e}")
+        raise RuntimeError(error_msg) from e
+
+    except Exception as e:
+        error_msg = (
+            "Failed to initialize Ollama client.\n\n"
+            "Please ensure:\n"
+            "  1. Ollama is installed from https://ollama.com/\n"
+            "  2. Ollama service is running\n"
+            "  3. The llama3 model is available: ollama pull llama3\n\n"
+            f"Error details: {type(e).__name__}: {str(e)}"
+        )
+        logger.error(f"Ollama initialization failed: {type(e).__name__}: {e}")
+        raise RuntimeError(error_msg) from e
+
+
 def _chat(system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
+    """
+    Send a chat request to the Ollama LLM.
+
+    Args:
+        system_prompt: System prompt to set context
+        user_prompt: User's actual prompt
+        json_mode: Whether to request JSON-formatted output
+
+    Returns:
+        str: LLM response content
+    """
+    client = get_ollama_client()
+
     kwargs = {
         "model": "llama3",
         "messages": [
@@ -25,8 +127,14 @@ def _chat(system_prompt: str, user_prompt: str, json_mode: bool = False) -> str:
     }
     if json_mode:
         kwargs["format"] = "json"
+        logger.debug("Requesting JSON-formatted response from LLM")
+
+    logger.debug(f"Sending chat request to Ollama (json_mode={json_mode})")
     resp = client.chat(**kwargs)
-    return resp["message"]["content"].strip()
+    response_content = resp["message"]["content"].strip()
+    logger.debug(f"Received response from Ollama ({len(response_content)} chars)")
+
+    return response_content
 
 
 # -------------------------
@@ -152,6 +260,8 @@ def classify_and_summarize_commit(
     commit_hash = _extract_commit_hash(commit_block) or "unknown"
     commit_msg  = _extract_commit_message(commit_block)
 
+    logger.debug(f"Classifying commit {commit_hash} in {repo_name}")
+
     cache = load_cache() if cache_path is None else load_cache(cache_path)
     # auto-heal bad cached entries like "(summary unavailable) ..."
     cache = purge_bad_entries(cache)
@@ -159,6 +269,7 @@ def classify_and_summarize_commit(
 
     cached = get_cached(commit_hash, cache)
     if cached:
+        logger.debug(f"Using cached summary for commit {commit_hash}")
         return cached
 
     time_window = _time_window_phrase(mode, since_date, to_date)
@@ -197,6 +308,8 @@ def classify_and_summarize_commit(
 
     # 1) Ask in JSON mode
     try:
+        logger.debug(f"Requesting LLM summary for commit {commit_hash} (JSON mode)")
+        client = get_ollama_client()
         resp = client.chat(
             model="llama3",
             messages=[
@@ -210,6 +323,7 @@ def classify_and_summarize_commit(
 
         # 2) Retry once without format if parsing failed
         if not data:
+            logger.warning(f"JSON parsing failed for commit {commit_hash}, retrying without format constraint")
             resp2 = client.chat(
                 model="llama3",
                 messages=[
@@ -221,6 +335,7 @@ def classify_and_summarize_commit(
 
         # 3) Final deterministic fallback (heuristics)
         if not data:
+            logger.warning(f"LLM response parsing failed for commit {commit_hash}, using heuristic fallback")
             wt = _heuristic_work_type(commit_msg)
             data = {
                 "commit_hash": commit_hash,
@@ -228,6 +343,8 @@ def classify_and_summarize_commit(
                 "bullet": f"- [{wt}] `{commit_hash}`: {commit_msg or 'Updated files'}",
                 "team_snippet": (commit_msg or "updates")[:60].rstrip("."),
             }
+        else:
+            logger.debug(f"Successfully classified commit {commit_hash} as {data.get('work_type', 'unknown')}")
 
         # sanitize & defaults
         if "commit_hash" not in data or not data["commit_hash"]:
@@ -242,9 +359,11 @@ def classify_and_summarize_commit(
         # cache only normalized dicts
         put_cached(commit_hash, data, cache)
         save_cache(cache)
+        logger.debug(f"Cached summary for commit {commit_hash}")
         return data
 
     except Exception as e:
+        logger.error(f"Error classifying commit {commit_hash}: {type(e).__name__}: {e}", exc_info=True)
         fallback = {
             "commit_hash": commit_hash,
             "work_type": _heuristic_work_type(commit_msg),
@@ -253,6 +372,7 @@ def classify_and_summarize_commit(
         }
         put_cached(commit_hash, fallback, cache)
         save_cache(cache)
+        logger.debug(f"Using fallback summary for commit {commit_hash}")
         return fallback
 
 def generate_repo_standup_paragraph(repo_name: str, time_window: str, bullets: list[str], team_snips: list[str]) -> str:
@@ -261,7 +381,10 @@ def generate_repo_standup_paragraph(repo_name: str, time_window: str, bullets: l
     Falls back to rule-based if the model fails for any reason.
     """
     if not bullets:
+        logger.debug(f"No bullets for {repo_name}, skipping standup paragraph generation")
         return ""
+
+    logger.info(f"Generating standup paragraph for {repo_name} ({len(bullets)} commits)")
 
     # Keep it short: pass only the first ~10 bullets to avoid verbosity
     bullets_text = "\n".join(bullets[:10])
@@ -287,8 +410,10 @@ def generate_repo_standup_paragraph(repo_name: str, time_window: str, bullets: l
         # minimal sanity check
         if len(paragraph.split()) < 8:
             raise ValueError("Too short")
+        logger.debug(f"Successfully generated standup paragraph for {repo_name}")
         return paragraph
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to generate LLM standup for {repo_name}: {e}, using fallback")
         # fallback: rule-based
         short = ", ".join(sorted(set(team_snips))) if team_snips else "progress across multiple areas"
         return f"{time_window}, I focused on {short}. I wrapped up key changes and ensured things are stable."
@@ -302,7 +427,10 @@ def generate_team_scrum_paragraph(repo_summaries: list[Dict[str, Any]], since_da
     """
     time_window = _time_window_phrase(mode, since_date, to_date)
     if not repo_summaries:
+        logger.debug("No repo summaries provided, skipping team scrum paragraph")
         return ""
+
+    logger.info(f"Generating team scrum summary for {len(repo_summaries)} repositories")
 
     lines = []
     for r in repo_summaries:
@@ -331,8 +459,10 @@ def generate_team_scrum_paragraph(repo_summaries: list[Dict[str, Any]], since_da
         paragraph = _chat(system_prompt, user_prompt)
         if len(paragraph.split()) < 10:
             raise ValueError("Too short")
+        logger.debug(f"Successfully generated team scrum summary")
         return paragraph
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to generate LLM team summary: {e}, using fallback")
         # fallback: join repo names
         names = ", ".join([r["repo_name"] for r in repo_summaries])
         return f"{time_window}, the team advanced work across {names}, making steady progress on features, fixes, and cleanup."
@@ -360,11 +490,14 @@ def summarize_repo_text_block(
         "standup_summary": "<ready-to-speak paragraph>"
       }
     """
+    logger.info(f"Summarizing repository: {repo_name}")
     time_window = _time_window_phrase(mode, since_date, to_date)
 
     blocks: List[str] = [
         b.strip() for b in full_repo_block_text.split("===COMMIT===") if b.strip()
     ]
+
+    logger.debug(f"Processing {len(blocks)} commits for {repo_name}")
 
     per_commit = [
         classify_and_summarize_commit(b, repo_name, since_date, to_date, mode)
@@ -374,8 +507,12 @@ def summarize_repo_text_block(
     bullets = [x["bullet"] for x in per_commit if x.get("bullet")]
     team_snips = [x["team_snippet"] for x in per_commit if x.get("team_snippet")]
 
+    logger.debug(f"Generated {len(bullets)} bullets for {repo_name}")
+
     # NEW: ask LLM for a natural paragraph
     standup_paragraph = generate_repo_standup_paragraph(repo_name, time_window, bullets, team_snips)
+
+    logger.info(f"Completed summary for {repo_name}")
 
     return {
         "repo_name": repo_name,

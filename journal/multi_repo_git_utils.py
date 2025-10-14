@@ -160,3 +160,49 @@ def get_all_commits_across_repos(
         final.append("\n### 🧠 Scrum Summary\n" + team_para)
 
     return "\n\n".join(final)
+
+
+def get_all_commits_across_repos_structured(
+    since_date: str,
+    to_date: Optional[str] = None,
+    root: str = "~/dev",
+    summarize_with_llm: bool = True,
+    mode: str = "today",
+    selected_repos: Optional[List[Path]] = None,
+) -> Dict[str, Any]:
+    root_path = Path(os.path.expanduser(root))
+    repos = selected_repos if selected_repos is not None else find_git_repos(root_path)
+
+    repo_summaries: List[Dict[str, Any]] = []
+    for repo in repos:
+        raw_log = get_commits_from_repo(repo, since_date, to_date=to_date)
+        if not raw_log:
+            continue
+
+        if summarize_with_llm:
+            summary_obj = summarize_repo_text_block(
+                repo_name=repo.name,
+                since_date=since_date,
+                to_date=to_date,
+                mode=mode,
+                full_repo_block_text=raw_log,
+            )
+            summary_obj["path"] = str(repo)
+            repo_summaries.append(summary_obj)
+        else:
+            # fallback minimal shape
+            repo_summaries.append({
+                "repo_name": repo.name,
+                "path": str(repo),
+                "bullets": [raw_log],
+                "team_snippets": [],
+                "standup_summary": "",
+            })
+
+    team_para = generate_team_scrum_paragraph(
+        repo_summaries=repo_summaries,
+        since_date=since_date,
+        to_date=to_date,
+        mode=mode,
+    )
+    return {"repos": repo_summaries, "team_summary": team_para}
