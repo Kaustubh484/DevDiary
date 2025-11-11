@@ -1,0 +1,49 @@
+# DevDiary Configuration File
+# Copy this to config.yaml and customize
+
+ollama:
+  enabled: true
+  model: llama3
+  endpoint: http://localhost:11434
+  timeout: 120
+
+scanning:
+  root_path: ~/dev
+  max_repos: null
+  include_hidden: false
+  excluded_patterns:
+    - venv/
+    - .venv/
+    - __pycache__
+    - .git/
+    - env/
+    - site-packages
+    - /bin/
+    - /lib/
+    - dist-info
+    - node_modules/
+    - .next/
+    - build/
+    - dist/
+
+cache:
+  enabled: true
+  path: null
+  max_age_days: 30
+
+ui:
+  theme: dark
+  default_mode: weekly
+  show_diff_stats: true
+  show_charts: true
+  page_layout: wide
+
+export:
+  default_format: markdown
+  output_directory: ~/Downloads
+  filename_pattern: devdiary_{mode}_{date}
+
+# Environment variable overrides:
+# DEVDIARY_ROOT - Override scanning.root_path
+# DEVDIARY_MODEL - Override ollama.model
+# DEVDIARY_OLLAMA_ENDPOINT - Override ollama.endpoint

@@ -1,0 +1,14 @@
+click==8.1.8
+gitdb==4.0.12
+GitPython==3.1.44
+python-dotenv==1.1.1
+smmap==5.0.2
+ollama==0.3.3
+pandas==2.2.0
+streamlit==1.39.0
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.2
+PyQt5-sip>=12.15
+rich==13.7.0
+colorama==0.4.6
+PyYAML==6.0.1
