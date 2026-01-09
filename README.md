@@ -1,6 +1,8 @@
 # DevDiary
 _Automated Developer Activity Summarizer with LLM Integration_
 
+![Screenshot](assests\image.png)
+
 DevDiary is a personal developer journal assistant that automates the logging, summarization, and reporting of Git-based activity across multiple projects. It helps developers effortlessly prepare stand-up updates, weekly retrospectives, and maintain clear work logs — all powered by open-source LLMs.
 
 ## Features
