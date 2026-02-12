@@ -3,7 +3,7 @@ _Automated Developer Activity Summarizer with LLM Integration_
 
 ![Screenshot](assests/image.png)
 
-DevDiary is a personal developer journal assistant that automates the logging, summarization, and reporting of Git-based activity across multiple projects. It helps developers effortlessly prepare stand-up updates, weekly retrospectives, and maintain clear work logs, all powered by open-source LLMs.
+DevDiary is a personal developer journal assistant that automates the logging, summarization, and reporting of Git-based activity across multiple projects. It helps developers effortlessly prepare stand-up updates, weekly retrospectives, and maintain clear work logs; all powered by open-source LLMs.
 
 ## Features
 
@@ -13,14 +13,14 @@ DevDiary is a personal developer journal assistant that automates the logging, s
 - Generates natural-language stand-up summaries
 - Filters out irrelevant files (e.g., venvs, .git, __pycache__)
 - Displays file diffs with insertions/deletions per commit
-- CLI + full PyQt5 GUI desktop application
+- CLI + full Streamlit Application
 
 ## Tech Stack
 
 - Python 3.11 or 3.12 (recommended)
 - Git CLI
 - [Ollama](https://ollama.com/) + LLaMA 3 for local LLM inference
-- PyQt5 (GUI)
+- Streamlit (GUI)
 - Click (CLI)
 - `subprocess`, `pathlib`, and `datetime` for Git interaction
 
@@ -69,17 +69,6 @@ python main.py summarize --all-projects --mode weekly --summarize --output summa
 - `--output`: Save output to file
 
 
-
-## Example Output
-
-```markdown
-### dev-journal-assistant
-- `ad9d16a`: Set up the project structure (`main.py`, `summarize.py`)
-- `0bb322a`: Integrated Ollama for local LLM summaries
-
-**Standup Summary**: In the last 7 days, I bootstrapped a local LLM-powered journaling system and integrated commit summarization with GUI support.
-```
-
 ## Future Work
 
 - GitHub/GitLab remote integration
@@ -87,10 +76,5 @@ python main.py summarize --all-projects --mode weekly --summarize --output summa
 - Fine-tuned summarization models
 - PDF/Markdown export of journal logs
 
-## License
 
-MIT License
 
----
-
-Created by Kaustubh 
